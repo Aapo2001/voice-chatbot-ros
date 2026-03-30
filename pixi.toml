@@ -1,0 +1,58 @@
+[workspace]
+name = "voice-chatbot-ros"
+version = "0.1.0"
+description = "ROS 2 Humble nodes for the voice-chatbot pipeline"
+channels = ["robostack-staging", "conda-forge"]
+platforms = ["linux-64", "win-64"]
+
+[dependencies]
+# ROS 2 Humble core
+ros-humble-ros-base = "*"
+ros-humble-rclpy = "*"
+ros-humble-std-msgs = "*"
+ros-humble-std-srvs = "*"
+ros-humble-launch = "*"
+ros-humble-launch-ros = "*"
+ros-humble-ament-cmake = "*"
+
+# Build tools
+python = ">=3.10,<3.12"
+pip = "*"
+colcon-common-extensions = "*"
+
+[pypi-dependencies]
+voice-chatbot = { version = "*", extras = ["all"] }
+
+[tasks]
+# Ensure setuptools is compatible with colcon (Humble needs <80)
+ensure-setuptools-compat = { cmd = "python tools/ensure_setuptools_compat.py" }
+
+# Install Python (pip) dependencies (handled by [pypi-dependencies], kept for manual use)
+install-python-deps = { cmd = "echo 'Python deps are managed by pixi via [pypi-dependencies]. Run: pixi install'" }
+
+# Download and cache all required models (LLM, STT, TTS, VAD)
+setup-models = { cmd = "python -m voice_chatbot.setup_models" }
+
+# Build the ROS 2 workspace with colcon
+build = { cmd = "colcon build --symlink-install", depends-on = ["ensure-setuptools-compat"] }
+
+# Run individual nodes
+ros-stt = { cmd = "bash tools/ros_run_node_pixi.sh voice_stt_node" }
+ros-llm = { cmd = "bash tools/ros_run_node_pixi.sh voice_llm_node" }
+ros-tts = { cmd = "bash tools/ros_run_node_pixi.sh voice_tts_node" }
+ros-app = { cmd = "bash tools/ros_run_node_pixi.sh voice_chatbot_ros_app" }
+
+# Launch file (3 nodes in one process group)
+ros-launch = { cmd = "bash tools/ros_launch_pixi.sh" }
+
+# Start all nodes in separate terminal tabs
+ros-start = { cmd = "bash tools/ros_start_all.sh" }
+
+[target.win-64.tasks]
+build = { cmd = "colcon build", depends-on = ["ensure-setuptools-compat"] }
+ros-stt = { cmd = "tools\\ros_run_node_pixi.bat voice_stt_node" }
+ros-llm = { cmd = "tools\\ros_run_node_pixi.bat voice_llm_node" }
+ros-tts = { cmd = "tools\\ros_run_node_pixi.bat voice_tts_node" }
+ros-app = { cmd = "tools\\ros_run_gui.bat" }
+ros-launch = { cmd = "tools\\ros_launch_pixi.bat" }
+ros-start = { cmd = "tools\\ros_start_all.bat" }

@@ -7,3 +7,4 @@ install/
 log/
 .pixi/
 *.local
+models/
