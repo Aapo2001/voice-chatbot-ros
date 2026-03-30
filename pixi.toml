@@ -19,40 +19,49 @@ ros-humble-ament-cmake = "*"
 python = ">=3.10,<3.12"
 pip = "*"
 colcon-common-extensions = "*"
+numpy = ">=1.26,<2"
+
+[pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cu128"]
 
 [pypi-dependencies]
 voice-chatbot = { version = "*", extras = ["all"] }
+llama-cpp-python = "==0.3.19"
+transformers = ">=4.44,<4.46"
+torch = "==2.7.1"
+torchaudio = "==2.7.1"
 
 [tasks]
 # Ensure setuptools is compatible with colcon (Humble needs <80)
 ensure-setuptools-compat = { cmd = "python tools/ensure_setuptools_compat.py" }
+ensure-llm-cuda = { cmd = "python tools/ensure_llama_cuda.py" }
 
 # Install Python (pip) dependencies (handled by [pypi-dependencies], kept for manual use)
 install-python-deps = { cmd = "echo 'Python deps are managed by pixi via [pypi-dependencies]. Run: pixi install'" }
 
 # Download and cache all required models (LLM, STT, TTS, VAD)
-setup-models = { cmd = "python -m voice_chatbot.setup_models" }
+setup-models = { cmd = "python tools/setup_models.py" }
 
 # Build the ROS 2 workspace with colcon
 build = { cmd = "colcon build --symlink-install", depends-on = ["ensure-setuptools-compat"] }
 
 # Run individual nodes
 ros-stt = { cmd = "bash tools/ros_run_node_pixi.sh voice_stt_node" }
-ros-llm = { cmd = "bash tools/ros_run_node_pixi.sh voice_llm_node" }
+ros-llm = { cmd = "bash tools/ros_run_node_pixi.sh voice_llm_node", depends-on = ["ensure-llm-cuda"] }
 ros-tts = { cmd = "bash tools/ros_run_node_pixi.sh voice_tts_node" }
-ros-app = { cmd = "bash tools/ros_run_node_pixi.sh voice_chatbot_ros_app" }
+ros-app = { cmd = "bash tools/ros_run_node_pixi.sh voice_chatbot_ros_app", depends-on = ["ensure-llm-cuda"] }
 
 # Launch file (3 nodes in one process group)
-ros-launch = { cmd = "bash tools/ros_launch_pixi.sh" }
+ros-launch = { cmd = "bash tools/ros_launch_pixi.sh", depends-on = ["ensure-llm-cuda"] }
 
 # Start all nodes in separate terminal tabs
-ros-start = { cmd = "bash tools/ros_start_all.sh" }
+ros-start = { cmd = "bash tools/ros_start_all.sh", depends-on = ["ensure-llm-cuda"] }
 
 [target.win-64.tasks]
 build = { cmd = "colcon build", depends-on = ["ensure-setuptools-compat"] }
 ros-stt = { cmd = "tools\\ros_run_node_pixi.bat voice_stt_node" }
-ros-llm = { cmd = "tools\\ros_run_node_pixi.bat voice_llm_node" }
+ros-llm = { cmd = "tools\\ros_run_node_pixi.bat voice_llm_node", depends-on = ["ensure-llm-cuda"] }
 ros-tts = { cmd = "tools\\ros_run_node_pixi.bat voice_tts_node" }
-ros-app = { cmd = "tools\\ros_run_gui.bat" }
-ros-launch = { cmd = "tools\\ros_launch_pixi.bat" }
-ros-start = { cmd = "tools\\ros_start_all.bat" }
+ros-app = { cmd = "tools\\ros_run_gui.bat", depends-on = ["ensure-llm-cuda"] }
+ros-launch = { cmd = "tools\\ros_launch_pixi.bat", depends-on = ["ensure-llm-cuda"] }
+ros-start = { cmd = "tools\\ros_start_all.bat", depends-on = ["ensure-llm-cuda"] }

@@ -12,9 +12,10 @@ import traceback
 import rclpy
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
-
 from voice_chatbot.llm import ChatLLM
+
 from voice_chatbot_ros._base import VoiceNodeBase
+from voice_chatbot_ros.llm_compat import describe_llm_gpu_offload
 
 
 class VoiceLlmNode(VoiceNodeBase):
@@ -41,6 +42,12 @@ class VoiceLlmNode(VoiceNodeBase):
     def _initialize(self) -> None:
         try:
             self._publish_status("initializing")
+            llm_gpu_ok, llm_gpu_message = describe_llm_gpu_offload(self._config)
+            if llm_gpu_ok:
+                self._publish_log(llm_gpu_message)
+            else:
+                self.get_logger().warning(llm_gpu_message)
+                self._publish_log(llm_gpu_message)
             self._publish_log("LLM node: initializing LLM...")
             self._llm = ChatLLM(self._config)
 

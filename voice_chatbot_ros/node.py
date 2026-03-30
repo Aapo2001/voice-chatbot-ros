@@ -12,13 +12,15 @@ import traceback
 import rclpy
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
-
 from voice_chatbot.audio_io import AudioIO
 from voice_chatbot.llm import ChatLLM
 from voice_chatbot.stt import SpeechToText
 from voice_chatbot.tts_engine import TextToSpeech
 from voice_chatbot.vad import VoiceActivityDetector
+
 from voice_chatbot_ros._base import VoiceNodeBase
+from voice_chatbot_ros.llm_compat import describe_llm_gpu_offload
+from voice_chatbot_ros.torch_compat import disable_tts_gpu_if_unsupported
 
 
 class VoiceChatbotNode(VoiceNodeBase):
@@ -62,10 +64,19 @@ class VoiceChatbotNode(VoiceNodeBase):
         try:
             self._publish_status("initializing")
 
+            llm_gpu_ok, llm_gpu_message = describe_llm_gpu_offload(self._config)
+            if llm_gpu_ok:
+                self._publish_log(llm_gpu_message)
+            else:
+                self.get_logger().warning(llm_gpu_message)
+                self._publish_log(llm_gpu_message)
             self._publish_log("Initializing LLM...")
             self._llm = ChatLLM(self._config)
 
             if self._enable_tts_playback:
+                tts_device_message = disable_tts_gpu_if_unsupported(self._config)
+                if tts_device_message:
+                    self._publish_log(tts_device_message)
                 self._publish_log("Initializing audio playback...")
                 self._audio = AudioIO(self._config)
                 self._publish_log("Initializing TTS...")

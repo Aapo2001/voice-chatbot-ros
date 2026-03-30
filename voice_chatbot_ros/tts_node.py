@@ -11,10 +11,11 @@ import traceback
 
 import rclpy
 from std_msgs.msg import String
-
 from voice_chatbot.audio_io import AudioIO
 from voice_chatbot.tts_engine import TextToSpeech
+
 from voice_chatbot_ros._base import VoiceNodeBase
+from voice_chatbot_ros.torch_compat import disable_tts_gpu_if_unsupported
 
 
 class VoiceTtsNode(VoiceNodeBase):
@@ -40,6 +41,9 @@ class VoiceTtsNode(VoiceNodeBase):
     def _initialize(self) -> None:
         try:
             self._publish_status("initializing")
+            tts_device_message = disable_tts_gpu_if_unsupported(self._config)
+            if tts_device_message:
+                self._publish_log(tts_device_message)
             self._publish_log("TTS node: initializing audio playback...")
             self._audio = AudioIO(self._config)
 
