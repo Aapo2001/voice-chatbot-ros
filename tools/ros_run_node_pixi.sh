@@ -11,15 +11,31 @@
 # ─────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-NODE_NAME="${1:?Usage: ros_run_node_pixi.sh <node_executable_name>}"
-CONFIG_PATH="${2:-$(pwd)/config.json}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PACKAGE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$PACKAGE_ROOT/../.." && pwd)"
+DEFAULT_CONFIG_PATH="$PROJECT_ROOT/config.json"
 
-# Verify the workspace has been built.
-if [[ ! -f "install/setup.bash" ]]; then
+source "$SCRIPT_DIR/setup_audio_env.sh"
+
+NODE_NAME="${1:?Usage: ros_run_node_pixi.sh <node_executable_name>}"
+if [[ -f "$DEFAULT_CONFIG_PATH" ]]; then
+    CONFIG_PATH="${2:-$DEFAULT_CONFIG_PATH}"
+else
+    CONFIG_PATH="${2:-$PACKAGE_ROOT/config.json}"
+fi
+
+if [[ ! -f "$PACKAGE_ROOT/install/setup.bash" ]]; then
     echo "ERROR: install/setup.bash not found. Run \`pixi run build\` first." >&2
     exit 1
 fi
 
-# Source the colcon workspace overlay and start the node.
-source install/setup.bash
-ros2 run voice_chatbot_ros "${NODE_NAME}" --ros-args -p config_path:="${CONFIG_PATH}" -r __ns:=/voice_chatbot
+# Colcon-generated setup scripts access optional variables like COLCON_TRACE
+# directly, which breaks under `set -u`.
+set +u
+source "$PACKAGE_ROOT/install/setup.bash"
+set -u
+
+cd "$PROJECT_ROOT"
+
+exec ros2 run voice_chatbot_ros "${NODE_NAME}" --ros-args -p config_path:="${CONFIG_PATH}" -r __ns:=/voice_chatbot
