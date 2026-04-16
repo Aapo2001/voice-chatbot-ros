@@ -12,30 +12,40 @@
 # ─────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
-WD="$(pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PACKAGE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$PACKAGE_ROOT/../.." && pwd)"
+MANIFEST_PATH="$PACKAGE_ROOT/pixi.toml"
+DEFAULT_CONFIG_PATH="$PROJECT_ROOT/config.json"
 
 echo "Starting ROS 2 voice chatbot..."
 
-# Build the ROS 2 workspace first (colcon build).
-pixi run build
+env -u PIXI_PROJECT_MANIFEST pixi run --manifest-path "$MANIFEST_PATH" ensure-llm-cuda
+env -u PIXI_PROJECT_MANIFEST pixi run --manifest-path "$MANIFEST_PATH" build
 
-if command -v gnome-terminal &>/dev/null; then
-    # Launch all four as tabs in one gnome-terminal window.
-    # The GUI tab sleeps 2 seconds so the ROS nodes can advertise
-    # their topics before the GUI tries to subscribe.
-    gnome-terminal --window \
-        --tab --title="STT" -- bash -c "cd '$WD' && pixi run ros-stt; exec bash" \
-        --tab --title="LLM" -- bash -c "cd '$WD' && pixi run ros-llm; exec bash" \
-        --tab --title="TTS" -- bash -c "cd '$WD' && pixi run ros-tts; exec bash" \
-        --tab --title="Unified UI" -- bash -c "cd '$WD' && sleep 2 && pixi run ros-unified-ui; exec bash"
+if [[ -f "$DEFAULT_CONFIG_PATH" ]]; then
+    CONFIG_PATH="$DEFAULT_CONFIG_PATH"
 else
+    CONFIG_PATH="$PACKAGE_ROOT/config.json"
+fi
+
+if ! command -v gnome-terminal &>/dev/null; then
     echo "gnome-terminal not found. Run each manually in separate terminals:"
-    echo "  pixi run ros-stt"
-    echo "  pixi run ros-llm"
-    echo "  pixi run ros-tts"
-    echo "  pixi run ros-unified-ui"
+    echo "  env -u PIXI_PROJECT_MANIFEST pixi run --manifest-path \"$MANIFEST_PATH\" bash tools/ros_run_node_pixi.sh voice_stt_node \"$CONFIG_PATH\""
+    echo "  env -u PIXI_PROJECT_MANIFEST pixi run --manifest-path \"$MANIFEST_PATH\" bash tools/ros_run_node_pixi.sh voice_llm_node \"$CONFIG_PATH\""
+    echo "  env -u PIXI_PROJECT_MANIFEST pixi run --manifest-path \"$MANIFEST_PATH\" bash tools/ros_run_node_pixi.sh voice_tts_node \"$CONFIG_PATH\""
+    echo "  env -u PIXI_PROJECT_MANIFEST pixi run --manifest-path \"$MANIFEST_PATH\" bash tools/ros_run_node_pixi.sh voice_chatbot_ros_app \"$CONFIG_PATH\""
     exit 1
 fi
+
+TAB_STT="cd '$PACKAGE_ROOT' && env -u PIXI_PROJECT_MANIFEST pixi run --manifest-path '$MANIFEST_PATH' bash tools/ros_run_node_pixi.sh voice_stt_node '$CONFIG_PATH'; exec bash"
+TAB_LLM="cd '$PACKAGE_ROOT' && env -u PIXI_PROJECT_MANIFEST pixi run --manifest-path '$MANIFEST_PATH' bash tools/ros_run_node_pixi.sh voice_llm_node '$CONFIG_PATH'; exec bash"
+TAB_TTS="cd '$PACKAGE_ROOT' && env -u PIXI_PROJECT_MANIFEST pixi run --manifest-path '$MANIFEST_PATH' bash tools/ros_run_node_pixi.sh voice_tts_node '$CONFIG_PATH'; exec bash"
+TAB_GUI="cd '$PACKAGE_ROOT' && sleep 2 && env -u PIXI_PROJECT_MANIFEST pixi run --manifest-path '$MANIFEST_PATH' bash tools/ros_run_node_pixi.sh voice_chatbot_ros_app '$CONFIG_PATH'; exec bash"
+
+gnome-terminal --window --title="STT" -- bash -lc "$TAB_STT"
+gnome-terminal --tab --title="LLM" -- bash -lc "$TAB_LLM"
+gnome-terminal --tab --title="TTS" -- bash -lc "$TAB_TTS"
+gnome-terminal --tab --title="GUI" -- bash -lc "$TAB_GUI"
 
 echo "All tabs launched."

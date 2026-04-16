@@ -1,7 +1,10 @@
-"""Ensure llama-cpp-python is built with CUDA support on Windows."""
+"""Ensure llama-cpp-python is built with CUDA support."""
 
 from __future__ import annotations
 
+import importlib.metadata
+import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -22,6 +25,102 @@ def _llama_supports_gpu_offload() -> bool:
         check=True,
     )
     return result.stdout.strip() == "1"
+
+
+def _stamp_path() -> Path:
+    return Path(sys.prefix) / ".llama_cpp_cuda_stamp.json"
+
+
+def _llama_package_artifact_mtimes() -> list[float]:
+    mtimes: list[float] = []
+
+    spec = importlib.util.find_spec("llama_cpp")
+    if spec and spec.origin:
+        package_dir = Path(spec.origin).resolve().parent
+        for pattern in ("*.py", "*.so", "*.pyd", "*.dll", "*.dylib"):
+            for path in package_dir.rglob(pattern):
+                try:
+                    mtimes.append(path.stat().st_mtime)
+                except FileNotFoundError:
+                    pass
+
+    try:
+        distribution = importlib.metadata.distribution("llama-cpp-python")
+    except importlib.metadata.PackageNotFoundError:
+        return mtimes
+
+    for file in distribution.files or []:
+        path = distribution.locate_file(file)
+        if ".dist-info" not in path.parts:
+            continue
+        try:
+            mtimes.append(path.stat().st_mtime)
+        except FileNotFoundError:
+            pass
+
+    return mtimes
+
+
+def _build_env(cuda_root: Path) -> dict[str, str]:
+    env = os.environ.copy()
+    cmake_args = ["-DGGML_CUDA=on"]
+    cuda_arch = env.get("CMAKE_CUDA_ARCHITECTURES") or env.get(
+        "LLAMA_CMAKE_CUDA_ARCHITECTURES"
+    )
+    if cuda_arch:
+        cmake_args.append(f"-DCMAKE_CUDA_ARCHITECTURES={cuda_arch}")
+
+    env.update(
+        {
+            "CMAKE_ARGS": " ".join(cmake_args),
+            "FORCE_CMAKE": "1",
+            "CUDA_PATH": str(cuda_root),
+            "CUDA_HOME": str(cuda_root),
+            "CUDAToolkit_ROOT": str(cuda_root),
+            "CUDACXX": str(cuda_root / "bin" / _nvcc_name()),
+        }
+    )
+    return env
+
+
+def _stamp_payload(version: str, cuda_root: Path) -> dict[str, str]:
+    return {
+        "python_executable": sys.executable,
+        "python_prefix": sys.prefix,
+        "llama_cpp_python_version": version,
+        "cuda_root": str(cuda_root),
+        "cmake_args": _build_env(cuda_root)["CMAKE_ARGS"],
+    }
+
+
+def _has_current_cuda_rebuild_stamp(version: str, cuda_root: Path) -> bool:
+    stamp_path = _stamp_path()
+    if not stamp_path.is_file():
+        return False
+
+    try:
+        stamp_data = json.loads(stamp_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    if stamp_data != _stamp_payload(version, cuda_root):
+        return False
+
+    try:
+        stamp_mtime = stamp_path.stat().st_mtime
+    except FileNotFoundError:
+        return False
+
+    artifact_mtimes = _llama_package_artifact_mtimes()
+    return not artifact_mtimes or stamp_mtime >= max(artifact_mtimes)
+
+
+def _write_cuda_rebuild_stamp(version: str, cuda_root: Path) -> None:
+    stamp_path = _stamp_path()
+    stamp_path.write_text(
+        json.dumps(_stamp_payload(version, cuda_root), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
 
 
 def _find_vswhere() -> Path | None:
@@ -85,37 +184,44 @@ def _find_vcvars64() -> Path:
     raise RuntimeError("Could not locate Visual Studio vcvars64.bat.")
 
 
+def _nvcc_name() -> str:
+    return "nvcc.exe" if os.name == "nt" else "nvcc"
+
+
+def _has_nvcc(cuda_root: Path) -> bool:
+    return (cuda_root / "bin" / _nvcc_name()).is_file()
+
+
 def _find_cuda_root() -> Path:
-    cuda_path = os.environ.get("CUDA_PATH")
-    if cuda_path:
+    for env_name in ("CUDA_PATH", "CUDA_HOME", "CUDAToolkit_ROOT"):
+        cuda_path = os.environ.get(env_name)
+        if not cuda_path:
+            continue
         cuda_root = Path(cuda_path)
-        if (cuda_root / "bin/nvcc.exe").is_file():
+        if _has_nvcc(cuda_root):
             return cuda_root
 
     nvcc_path = shutil.which("nvcc")
     if nvcc_path:
         return Path(nvcc_path).resolve().parent.parent
 
+    if os.name != "nt":
+        for candidate in sorted(Path("/usr/local").glob("cuda*"), reverse=True):
+            if _has_nvcc(candidate):
+                return candidate
+        for candidate in sorted(Path("/opt").glob("cuda*"), reverse=True):
+            if _has_nvcc(candidate):
+                return candidate
+
     raise RuntimeError(
         "Could not locate nvcc. CUDA toolkit is required for GGML_CUDA builds."
     )
 
 
-def main() -> int:
-    if _llama_supports_gpu_offload():
-        print("[llm-cuda] llama-cpp-python already supports GPU offload.")
-        return 0
-
-    if os.name != "nt":
-        raise RuntimeError(
-            "Automatic llama-cpp-python CUDA rebuild is only implemented for Windows."
-        )
-
-    version = "0.3.19"
+def _reinstall_llama_with_cuda_on_windows(version: str, cuda_root: Path) -> None:
     vcvars64 = _find_vcvars64()
-    cuda_root = _find_cuda_root()
+    build_env = _build_env(cuda_root)
 
-    print(f"[llm-cuda] Rebuilding llama-cpp-python {version} with GGML_CUDA=on...")
     print(f"[llm-cuda] Using vcvars64: {vcvars64}")
     print(f"[llm-cuda] Using CUDA toolkit: {cuda_root}")
 
@@ -124,11 +230,12 @@ def main() -> int:
             "@echo off",
             f'call "{vcvars64}"',
             'set "CMAKE_GENERATOR=NMake Makefiles"',
-            'set "CMAKE_ARGS=-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=120"',
+            f'set "CMAKE_ARGS={build_env["CMAKE_ARGS"]}"',
             'set "FORCE_CMAKE=1"',
             f'set "CUDA_PATH={cuda_root}"',
+            f'set "CUDA_HOME={cuda_root}"',
             f'set "CUDAToolkit_ROOT={cuda_root}"',
-            f'set "CUDACXX={cuda_root}\\bin\\nvcc.exe"',
+            f'set "CUDACXX={cuda_root}\\bin\\{_nvcc_name()}"',
             f'"{sys.executable}" -m pip install --force-reinstall --no-cache-dir --no-deps "llama-cpp-python=={version}"',
         ]
     )
@@ -144,11 +251,60 @@ def main() -> int:
     finally:
         script_path.unlink(missing_ok=True)
 
+
+def _reinstall_llama_with_cuda_on_posix(version: str, cuda_root: Path) -> None:
+    build_env = _build_env(cuda_root)
+
+    print(f"[llm-cuda] Using CUDA toolkit: {cuda_root}")
+    print(f"[llm-cuda] Using CMAKE_ARGS: {build_env['CMAKE_ARGS']}")
+
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "--no-cache-dir",
+            "--no-deps",
+            f"llama-cpp-python=={version}",
+        ],
+        check=True,
+        env=build_env,
+    )
+
+
+def main() -> int:
+    version = "0.3.19"
+    cuda_root = _find_cuda_root()
+    supports_gpu_offload = _llama_supports_gpu_offload()
+
+    if _has_current_cuda_rebuild_stamp(version, cuda_root) and supports_gpu_offload:
+        print("[llm-cuda] Existing CUDA rebuild stamp is current; skipping rebuild.")
+        return 0
+
+    if supports_gpu_offload:
+        print("[llm-cuda] llama-cpp-python already supports GPU offload.")
+        _write_cuda_rebuild_stamp(version, cuda_root)
+        return 0
+
+    if _has_current_cuda_rebuild_stamp(version, cuda_root):
+        print(
+            "[llm-cuda] CUDA rebuild stamp is present, but GPU offload is unavailable. Rebuilding..."
+        )
+
+    print(f"[llm-cuda] Rebuilding llama-cpp-python {version} with GGML_CUDA=on...")
+    if os.name == "nt":
+        _reinstall_llama_with_cuda_on_windows(version, cuda_root)
+    else:
+        _reinstall_llama_with_cuda_on_posix(version, cuda_root)
+
     if not _llama_supports_gpu_offload():
         raise RuntimeError(
             "llama-cpp-python rebuild completed, but GPU offload is still unavailable."
         )
 
+    _write_cuda_rebuild_stamp(version, cuda_root)
     print("[llm-cuda] llama-cpp-python now supports GPU offload.")
     return 0
 
