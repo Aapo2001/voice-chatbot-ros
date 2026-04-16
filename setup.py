@@ -38,6 +38,7 @@ setup(
     entry_points={
         "console_scripts": [
             "voice_chatbot_ros_app = voice_chatbot_ros.ros_app:main",
+            "unified_app = voice_chatbot_ros.unified_app:main",
             "voice_chatbot_node = voice_chatbot_ros.node:main",
             "voice_stt_node = voice_chatbot_ros.stt_node:main",
             "voice_llm_node = voice_chatbot_ros.llm_node:main",

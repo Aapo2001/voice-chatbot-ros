@@ -6,7 +6,7 @@ REM  Opens four tabs in a single Windows Terminal window:
 REM    Tab 1: STT node   (mic + VAD + Whisper)
 REM    Tab 2: LLM node   (LLaMA/GGUF chat inference)
 REM    Tab 3: TTS node   (Coqui TTS + speaker playback)
-REM    Tab 4: GUI        (PySide6, delayed ~2 s to let nodes start)
+REM    Tab 4: Unified UI (RViz + image viewer + voice chatbot, delayed ~2 s)
 REM
 REM  Requires Windows Terminal (`wt`) on PATH (default on Win 11).
 REM ─────────────────────────────────────────────────────────────────
@@ -29,6 +29,6 @@ REM tries to subscribe.
 wt -w 0 new-tab --title "STT" -d "%CD%" cmd /k "pixi run ros-stt" ; ^
    new-tab --title "LLM" -d "%CD%" cmd /k "pixi run ros-llm" ; ^
    new-tab --title "TTS" -d "%CD%" cmd /k "pixi run ros-tts" ; ^
-   new-tab --title "GUI" -d "%CD%" cmd /k "ping -n 3 127.0.0.1 >nul && pixi run ros-app"
+   new-tab --title "Unified UI" -d "%CD%" cmd /k "ping -n 3 127.0.0.1 >nul && pixi run ros-unified-ui"
 
 echo All tabs launched.

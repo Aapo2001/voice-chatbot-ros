@@ -6,7 +6,7 @@
 #    Tab 1: STT node   (mic + VAD + Whisper)
 #    Tab 2: LLM node   (LLaMA/GGUF chat inference)
 #    Tab 3: TTS node   (Coqui TTS + speaker playback)
-#    Tab 4: GUI        (PySide6, delayed 2 s to let nodes start)
+#    Tab 4: Unified UI (RViz + image viewer + voice chatbot, delayed 2 s)
 #
 #  Requires gnome-terminal.  Falls back to manual instructions.
 # ─────────────────────────────────────────────────────────────────
@@ -28,13 +28,13 @@ if command -v gnome-terminal &>/dev/null; then
         --tab --title="STT" -- bash -c "cd '$WD' && pixi run ros-stt; exec bash" \
         --tab --title="LLM" -- bash -c "cd '$WD' && pixi run ros-llm; exec bash" \
         --tab --title="TTS" -- bash -c "cd '$WD' && pixi run ros-tts; exec bash" \
-        --tab --title="GUI" -- bash -c "cd '$WD' && sleep 2 && pixi run ros-app; exec bash"
+        --tab --title="Unified UI" -- bash -c "cd '$WD' && sleep 2 && pixi run ros-unified-ui; exec bash"
 else
     echo "gnome-terminal not found. Run each manually in separate terminals:"
     echo "  pixi run ros-stt"
     echo "  pixi run ros-llm"
     echo "  pixi run ros-tts"
-    echo "  pixi run ros-app"
+    echo "  pixi run ros-unified-ui"
     exit 1
 fi
 
